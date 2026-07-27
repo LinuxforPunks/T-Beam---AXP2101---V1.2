@@ -83,127 +83,36 @@ void setupPeripheralPowerSupplies()
     pmu.setChargerConstantCurr(XPOWERS_AXP2101_CHG_CUR_500MA);
 }
 
-void setup()
-{
+void setup() {
     Serial.begin(115200);
 
-    // Initialize LED
-    pinMode(BOARD_LED, OUTPUT);
-
-    // Initialize SPI
-    SPI.begin(RADIO_SCLK_PIN, RADIO_MISO_PIN, RADIO_MOSI_PIN);
-
-    // Initialize power supplies
-    setupPeripheralPowerSupplies();
-
-    // initialize SX1276 with default settings
-    Serial.print(F("[SX1276] Initializing ... "));
-    int state = radio.begin(CONFIG_RADIO_FREQ);
+    // SX1276 Parameters mapped to match your E90-DTU:
+    // Frequency: 868.0 MHz, Bandwidth: 125.0 kHz, Spreading Factor: 7, 
+    // Coding Rate: 5 (4/5), Sync Word: 0x12, Output Power: 17, Preamble: 8
+    int state = radio.begin(868.0, 125.0, 7, 5, 0x12, 17, 8); 
+    
     if (state == RADIOLIB_ERR_NONE) {
-        Serial.println(F("success!"));
+        // Success indicator (Optional: flash an onboard LED here if desired)
     } else {
-        Serial.print(F("failed, code "));
-        Serial.println(state);
-        while (true) {
-            delay(10);
-        }
+        while (true); // Halt execution if initialization fails
     }
-
-    // Set output power
-    radio.setOutputPower(CONFIG_RADIO_OUTPUT_POWER);
-
-    // set the function that will be called
-    // when new packet is received
-    radio.setPacketReceivedAction(setFlag);
-
-#if defined(INITIATING_NODE)
-
-    // send the first packet on this node
-    Serial.print(F("[SX1276] Sending first packet ... "));
-    transmissionState = radio.startTransmit("Hello World!");
-    transmitFlag = true;
-
-#else
-
-    // start listening for LoRa packets on this node
-    Serial.print(F("[SX1276] Starting to listen ... "));
-    state = radio.startReceive();
-    if (state == RADIOLIB_ERR_NONE) {
-        Serial.println(F("success!"));
-    } else {
-        Serial.print(F("failed, code "));
-        Serial.println(state);
-        while (true) {
-            delay(10);
-        }
-    }
-#endif
 }
 
-void loop()
-{
-    // check if the previous operation finished
-    if (operationDone) {
-        // reset flag
-        operationDone = false;
+void loop() {
+    // 1. LISTEN TO LOCAL PC/IPHONE (USB Serial -> LoRa Airwaves)
+    if (Serial.available() > 0) {
+        String outgoingPacket = Serial.readString();  
+        radio.transmit(outgoingPacket); 
+    }
 
-        if (transmitFlag) {
-
-            digitalWrite(BOARD_LED, 1 - digitalRead(BOARD_LED));
-
-            // the previous operation was transmission, listen for response
-            // print the result
-            if (transmissionState == RADIOLIB_ERR_NONE) {
-                // packet was successfully sent
-                Serial.println(F("transmission finished!"));
-
-            } else {
-                Serial.print(F("failed, code "));
-                Serial.println(transmissionState);
-
-            }
-
-            // listen for response
-            radio.startReceive();
-            transmitFlag = false;
-
-        } else {
-            // the previous operation was reception
-            // print data and send another packet
-            String str;
-            int state = radio.readData(str);
-
-            if (state == RADIOLIB_ERR_NONE) {
-
-                digitalWrite(BOARD_LED, 1 - digitalRead(BOARD_LED));
-
-                // packet was successfully received
-                Serial.println(F("[SX1276] Received packet!"));
-
-                // print data of the packet
-                Serial.print(F("[SX1276] Data:\t\t"));
-                Serial.println(str);
-
-                // print RSSI (Received Signal Strength Indicator)
-                Serial.print(F("[SX1276] RSSI:\t\t"));
-                Serial.print(radio.getRSSI());
-                Serial.println(F(" dBm"));
-
-                // print SNR (Signal-to-Noise Ratio)
-                Serial.print(F("[SX1276] SNR:\t\t"));
-                Serial.print(radio.getSNR());
-                Serial.println(F(" dB"));
-
-            }
-
-            // wait a second before transmitting again
-            delay(1000);
-
-            // send another one
-            Serial.print(F("[SX1276] Sending another packet ... "));
-            transmissionState = radio.startTransmit("Hello World!");
-            transmitFlag = true;
-        }
-
+    // 2. LISTEN TO AIRWAVES (LoRa Antenna -> USB Serial)
+    String incomingPacket; // Define the buffer container locally
+    
+    // Explicitly command the physical chip to scan the airwaves for packets
+    int state = radio.receive(incomingPacket);   
+    
+    if (state == RADIOLIB_ERR_NONE) {
+        // If a valid packet arrives from the Ebyte, dump raw text out of USB
+        Serial.print(incomingPacket); 
     }
 }
